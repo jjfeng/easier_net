@@ -27,7 +27,7 @@ biopython==1.73
 bitarray==0.9.3
 black==19.10b0
 blaze==0.10.1
-bleach==3.1.0
+bleach==3.1.4
 blessings==1.7
 blinker==1.4
 bokeh==1.2.0
