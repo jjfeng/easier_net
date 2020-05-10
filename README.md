@@ -7,7 +7,6 @@ The R code uses [Tensorflow on R](https://tensorflow.rstudio.com/).
 ## Quick-start
 
 Setup a python virtual environment (code runs for python 3.6) with the appropriate packages from `requirements.txt`.
-Create an `_output` folder in this folder for model outputs.
 
 Simulate data using `generate_data.py` or load your own into a `npz` format with `x` and `y` attributes.
 
