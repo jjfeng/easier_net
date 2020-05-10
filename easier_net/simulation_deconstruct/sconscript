@@ -1,0 +1,570 @@
+import os
+
+from os.path import join
+from nestly.scons import SConsWrap
+from nestly import Nest
+from SCons.Script import Environment, Command, AddOption
+import numpy as np
+
+Import('env')
+localenv = env.Clone()
+
+nest = SConsWrap(Nest(), localenv['output'], alias_environment=localenv)
+
+NUM_INIT = 20
+MAX_ITERS = 1500
+MAX_PROX_ITERS = 300
+LAYERS = [1,3,5]
+FULL_TREE_PENS = np.power(5., np.arange(-6,0)).tolist()
+INPUT_PENS = np.power(5., np.arange(-6,0)).tolist()
+HIER_INPUT_PENS = np.power(5., np.arange(-6,0)).tolist()
+HIER_FULL_TREE_PENS = np.power(5., np.arange(-8,0)).tolist()
+
+nest.add(
+    'mean_func',
+    ['curvy'])
+
+nest.add(
+    'n_inputs',
+    [100],
+    label_func=lambda c: 'inputs_%d' % c)
+
+nest.add(
+    'n_relevant',
+    [20, 100],
+    label_func=lambda c: 'relevant_%d' % c)
+
+nest.add(
+    'snr',
+    [2],
+    label_func=lambda c: 'snr_%.2f' % c)
+
+nest.add(
+    'n_obs',
+    [600, 3000],
+    label_func=lambda c: 'obs_%d' % c)
+
+nest.add(
+    'corr',
+    [0],
+    label_func=lambda c: 'corr_%.2f' % c)
+
+nest.add(
+    'seed',
+    range(1),
+    label_func=lambda c: 'seed_%d' % c)
+
+@nest.add_target_with_env(localenv)
+def generate(env, outdir, c):
+    targets = [
+        join(outdir, 'train_data.npz'),
+        join(outdir, 'train_data_log.txt'),
+        join(outdir, 'model.pkl')]
+    cmd = [
+        'python generate_data.py',
+        '--seed',
+        c['seed'],
+        '--x-scale 1',
+        '--correlation',
+        c['corr'],
+        '--num-corr 4' if c['corr'] > 0 else '--num-corr 0',
+        '--snr',
+        c['snr'],
+        '--n-obs',
+        c['n_obs'],
+        '--mean-func',
+        c['mean_func'],
+        '--n-relevant',
+        c['n_relevant'],
+        '--n-inputs',
+        c['n_inputs'],
+	'--out-file ${TARGETS[0]}',
+	'--out-model-file ${TARGETS[2]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def generate_validation(env, outdir, c):
+    targets = [
+        join(outdir, 'validation_data.npz'),
+        join(outdir, 'validation_data_log.txt')]
+    cmd = [
+        'python generate_data.py',
+        '--seed',
+        c['seed'] + 50,
+        '--x-scale 1',
+        '--correlation',
+        c['corr'],
+        '--num-corr 4' if c['corr'] > 0 else '--num-corr 0',
+        '--n-obs',
+        c['n_obs']//4,
+        '--in-model ${SOURCES[0]}',
+        '--n-inputs',
+        c['n_inputs'],
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        [c['generate'][-1]],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def generate_test(env, outdir, c):
+    targets = [
+        join(outdir, 'test_data.npz'),
+        join(outdir, 'test_data_log.txt')]
+    cmd = [
+        'python generate_data.py',
+        '--seed',
+        c['seed'] + 100,
+        '--x-scale 1',
+        '--correlation',
+        c['corr'],
+        '--num-corr 4' if c['corr'] > 0 else '--num-corr 0',
+        '--n-obs 10000',
+        '--in-model ${SOURCES[0]}',
+        '--n-inputs',
+        c['n_inputs'],
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        [c['generate'][-1]],
+        ' '.join(map(str, cmd)))
+
+nest.add_aggregate('final_evals', list)
+
+nest.add('layers', LAYERS, label_func=lambda c: 'layers_%d' % c)
+nest.add('hidden', [100], label_func=lambda c: 'hidden_%d' % c)
+
+nest.add_aggregate('final_dropout_models', list)
+nest.add(
+    'init_seed',
+    range(NUM_INIT),
+    label_func=lambda c: 'seed_init_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def fit_dropout_nn(env, outdir, c):
+    targets = [
+        join(outdir, 'nn_dropout.pt'),
+        join(outdir, 'nn_dropout_log.txt')]
+    c['final_dropout_models'].append(targets[0])
+    cmd = [
+        'srun -p restart --cpus-per-task 2',
+        'python fit_plain_nn.py',
+        '--data-file ${SOURCES[0]}',
+        '--seed',
+        c['seed'] + c['init_seed'],
+        '--n-layers',
+        c['layers'],
+        '--n-hidden',
+        c['hidden'],
+        '--num-batch 3',
+        '--max-iters',
+        MAX_ITERS,
+        '--max-prox-iters 0',
+        '--dropout 0.15',
+        '--full-tree-pen 0',
+        '--n-jobs 1',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['generate'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_nn_validate(env, outdir, c):
+    targets = [
+        join(outdir, 'val_dropout_log.txt'),
+        join(outdir, 'val_dropout.csv')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} plain_nnet',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_validation'][0],  c['fit_dropout_nn'][0]],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_nn_test(env, outdir, c):
+    targets = [
+        join(outdir, 'test_dropout.txt'),
+        join(outdir, 'test_dropout.csv'),
+        join(outdir, 'res_dropout.json')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} plain_nnet',
+        '--dump-net-struct',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+	'--json-file ${TARGETS[2]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_test'][0],  c['fit_dropout_nn'][0]],
+        ' '.join(map(str, cmd)))
+
+nest.pop('init_seed')
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_nn_validation(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_dropout_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'val_ensemble_dropout.csv'),
+        join(outdir, 'val_ensemble_dropout_log.txt'),
+    ]
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'plain_nnet',
+        '--model-name dropout-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_validation'] + c['final_dropout_models'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_nn_test(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_dropout_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'test_ensemble_dropout.csv'),
+        join(outdir, 'test_ensemble_dropout.txt'),
+    ]
+    c['final_evals'].append(targets[0])
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'plain_nnet',
+        '--model-name dropout-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_test'] + c['final_dropout_models'],
+        ' '.join(map(str, cmd)))
+
+nest.add(
+    'input_pen',
+    INPUT_PENS,
+    label_func=lambda c: 'input_pen_%.6f' % c)
+
+nest.add(
+    'full_tree_pen',
+    FULL_TREE_PENS,
+    label_func=lambda c: 'full_tree_pen_%.6f' % c)
+
+nest.add_aggregate('final_sparse_models', list)
+nest.add(
+    'init_seed',
+    range(NUM_INIT),
+    label_func=lambda c: 'seed_init_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def fit_plain_nn(env, outdir, c):
+    targets = [
+        join(outdir, 'nn_sparse.pt'),
+        join(outdir, 'nn_sparse_log.txt')]
+    c['final_sparse_models'].append(targets[0])
+    cmd = [
+        'srun -p restart --cpus-per-task 2',
+        'python fit_plain_nn.py',
+        '--data-file ${SOURCES[0]}',
+        '--seed',
+        c['seed'] + c['init_seed'],
+        '--input-filter-layer',
+        '--n-layers',
+        c['layers'],
+        '--n-hidden',
+        c['hidden'],
+        '--num-batch 3',
+        '--max-iters',
+        MAX_ITERS,
+        '--max-prox-iters',
+        MAX_PROX_ITERS,
+        '--dropout 0',
+        '--input-pen',
+        c['input_pen'],
+        '--full-tree-pen',
+        c['full_tree_pen'],
+        '--n-jobs 1',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['generate'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_nn_validation(env, outdir, c):
+    targets = [
+        join(outdir, 'val_sparse.txt'),
+        join(outdir, 'val_sparse.csv')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} plain_nnet',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_validation'][0],  c['fit_plain_nn'][0]],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_nn_test(env, outdir, c):
+    targets = [
+        join(outdir, 'test_sparse.txt'),
+        join(outdir, 'test_sparse.csv'),
+        join(outdir, 'res_sparse.json')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} plain_nnet',
+        '--dump-net-struct',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+	'--json-file ${TARGETS[2]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_test'][0],  c['fit_plain_nn'][0]],
+        ' '.join(map(str, cmd)))
+
+nest.pop('init_seed')
+
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_nn_validation(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_sparse_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'val_ensemble_sparse.csv'),
+        join(outdir, 'val_ensemble_sparse_log.txt'),
+    ]
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'plain_nnet',
+        '--model-name',
+        'L1-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_validation'] + c['final_sparse_models'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_nn(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_sparse_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'test_ensemble_sparse.csv'),
+        join(outdir, 'test_ensemble_sparse_log.txt'),
+    ]
+    c['final_evals'].append(targets[0])
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'plain_nnet',
+        '--model-name',
+        'L1-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_test'] + c['final_sparse_models'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('layers')
+
+nest.add(
+    'input_pen',
+    HIER_INPUT_PENS,
+    label_func=lambda c: 'input_pen_%.6f' % c)
+
+nest.add_aggregate('full_tree_pen_models', list)
+nest.add(
+    'full_tree_pen',
+    HIER_FULL_TREE_PENS,
+    label_func=lambda c: 'full_tree_pen_%.6f' % c)
+
+nest.add_aggregate('final_models', list)
+nest.add(
+    'init_seed',
+    range(NUM_INIT),
+    label_func=lambda c: 'seed_init_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def fit_easier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'init_easier_net.pt'),
+        join(outdir, 'init_easier_net_log.txt')]
+    c['final_models'].append(targets[0])
+    c['full_tree_pen_models'].append(targets[0])
+    cmd = [
+        'srun -p restart --cpus-per-task 2',
+        'python fit_easier_net.py',
+        '--data ${SOURCES[0]}',
+        '--seed',
+        c['seed'] + c['init_seed'],
+        '--n-layers 5',
+        '--n-hidden 100',
+        '--num-batches 3',
+        '--max-iters',
+        MAX_ITERS,
+        '--max-prox-iters',
+        MAX_PROX_ITERS,
+        '--input-filter-layer',
+        '--input-pen',
+        c['input_pen'],
+        '--full-tree-pen',
+        c['full_tree_pen'],
+        '--connection-pen 0',
+        '--n-jobs 1',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['generate'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_easier_nn_validation(env, outdir, c):
+    targets = [
+        join(outdir, 'val_easier_net.txt'),
+        join(outdir, 'val_easier_net.csv')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} easier_net',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_validation'][0],  c['fit_easier_net'][0]],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_easier_nn_test(env, outdir, c):
+    targets = [
+        join(outdir, 'test_easier_net.txt'),
+        join(outdir, 'test_easier_net.csv'),
+        join(outdir, 'res_easier_net.json')]
+    cmd = [
+        'python evaluate_model.py ${SOURCES[0]} ${SOURCES[1]} easier_net',
+        '--dump-net-struct',
+	'--log-file ${TARGETS[0]}',
+	'--out-file ${TARGETS[1]}',
+	'--json-file ${TARGETS[2]}',
+    ]
+    return env.Command(
+        targets,
+        [c['generate_test'][0],  c['fit_easier_net'][0]],
+        ' '.join(map(str, cmd)))
+
+nest.pop('init_seed')
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_easier_net_validation(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'val_ensemble_easier_net.csv'),
+        join(outdir, 'val_ensemble_easier_net_log.txt'),
+    ]
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'easier_net',
+        '--model-name',
+        'easier_net-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_validation'] + c['final_models'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_easier_net(env, outdir, c):
+    template = join("simulation_deconstruct", c['final_models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'test_ensemble_easier_net.csv'),
+        join(outdir, 'test_ensemble_easier_net_log.txt'),
+    ]
+    c['final_evals'].append(targets[0])
+    cmd = [
+        'python evaluate_ensemble.py ${SOURCES[0]}',
+        '"%s"' % template,
+        'easier_net',
+        '--model-name',
+        'easier_net-ensemble',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['generate_test'] + c['final_models'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('full_tree_pen')
+
+#@nest.add_target_with_env(localenv)
+#def plot_connection(env, outdir, c):
+#    template = join("simulation_deconstruct", c['full_tree_pen_models'][0].replace(
+#                  "full_tree_pen_%.6f/seed_init_0/" % HIER_FULL_TREE_PENS[0],
+#                  "full_tree_pen*/seed_init_*/"))
+#    targets = [
+#        join(outdir, 'importance.pdf'),
+#    ]
+#    cmd = [
+#        'python plot_connection_factors.py',
+#        '"%s"' % template,
+#	'--data-file ${SOURCES[0]}',
+#	'--out-importance ${TARGETS[0]}',
+#    ]
+#    return env.Command(
+#        targets,
+#        c['generate_test'] + c['full_tree_pen_models'],
+#        ' '.join(map(str, cmd)))
+
+nest.pop('input_pen')
+
+@nest.add_target_with_env(localenv)
+def pick_best(env, outdir, c):
+    targets = [
+        join(outdir, 'plot.txt'),
+    ]
+    dropout_ensemble_template = join("simulation_deconstruct", outdir, "l*/h*/test*csv")
+    sparse_ensemble_template = join("simulation_deconstruct", outdir, "l*/h*/*/*/test*csv")
+    easier_net_ensemble_template = join("simulation_deconstruct", outdir, "i*/f*/test*csv")
+    dropout_single_template = join("simulation_deconstruct", outdir, "l*/h*/see*0/test*csv")
+    sparse_single_template = join("simulation_deconstruct", outdir, "l*/h*/*/*/see*0/test*csv")
+    easier_net_single_template = join("simulation_deconstruct", outdir, "i*/f*/see*0/test*csv")
+
+    cmd = [
+        'python plot_simulation_deconstruct.py',
+        '--dropout-single',
+        '"%s"' % dropout_single_template,
+        '--sparse-single',
+        '"%s"' % sparse_single_template,
+        '--sier-net',
+        '"%s"' % easier_net_single_template,
+        '--dropout-ensemble',
+        '"%s"' % dropout_ensemble_template,
+        '--sparse-ensemble',
+        '"%s"' % sparse_ensemble_template,
+        '--easier-net',
+        '"%s"' % easier_net_ensemble_template,
+	'--out-file ${TARGETS[0]}',
+    ]
+    return env.Command(
+        targets,
+        c['final_evals'],
+        ' '.join(map(str, cmd)))

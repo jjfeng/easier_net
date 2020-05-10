@@ -21,8 +21,8 @@ from torch.utils.data import DataLoader
 
 from sklearn.model_selection import GridSearchCV
 
-from easier_net import SierNetEstimator
-from common import process_params
+from .sier_net import SierNetEstimator
+from .common import process_params
 
 
 def parse_args(args):

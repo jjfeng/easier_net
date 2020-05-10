@@ -1,0 +1,667 @@
+import os
+
+from os.path import join
+from nestly.scons import SConsWrap
+from nestly import Nest
+from SCons.Script import Environment, Command, AddOption
+import numpy as np
+
+Import('env')
+localenv = env.Clone()
+
+nest = SConsWrap(Nest(), localenv['output'], alias_environment=localenv)
+
+KFOLD = 4
+NUM_INITS = 5
+NUM_PLAIN_INITS = 10
+DATASETS = ['crime', 'boston', 'iran_house', 'wine', 'gene_cancer', 'ct_slices']
+LAYERS = [5]
+INPUT_PENS = np.power(5., np.arange(-10,0)).tolist()
+FULL_TREE_PENS = np.power(5., np.arange(-8,0)).tolist()
+
+INPUT_PENS = np.power(5., np.arange(-10,0)).tolist()
+FULL_TREE_PENS = np.power(5., np.arange(-4,-3)).tolist()
+
+nest.add_aggregate("dataset_results", list)
+nest.add_aggregate("network_structs", list)
+
+nest.add(
+    'dataset',
+    DATASETS)
+
+nest.add_aggregate("model_results", list)
+
+nest.add(
+    'seed',
+    [1],
+    label_func=lambda c: 'seed_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def make_fold_splits(env, outdir, c):
+    targets = [
+        join(outdir, 'fold_idxs.pkl')]
+    cmd = [
+        'python make_fold_idxs.py',
+        '--seed',
+        c['seed'],
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--k-fold',
+        KFOLD,
+	'--out ${TARGETS[0]}']
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+nest.add_aggregate('easier_net_res', list)
+nest.add_aggregate('siernet_res', list)
+
+nest.add(
+    'layers',
+    LAYERS,
+    label_func=lambda c: 'layers_%d' % c)
+
+nest.add(
+    'input_pen',
+    INPUT_PENS,
+    label_func=lambda c: 'input_pen_%.8f' % c)
+
+nest.add(
+    'full_tree_pen',
+    FULL_TREE_PENS,
+    label_func=lambda c: 'full_tree_pen_%.8f' % c)
+
+@nest.add_target_with_env(localenv)
+def fit_siernet(env, outdir, c):
+    targets = [
+        join(outdir, 'siernet_log.txt'),
+        join(outdir, 'siernet.pt')]
+    cmd = [
+        'srun --cpus-per-task 4 --exclude=gizmoe1,gizmoe2',
+        'python fit_easier_net.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--fold ${SOURCES[0]}',
+        '--seed',
+        c['seed'],
+        '--num-inits 1',
+        '--input-filter',
+        '--connection-pen 0',
+        '--n-layers 5',
+        '--n-hidden 100',
+        '--num-batches 3',
+        '--max-iters 3000',
+        '--max-prox-iters 300',
+        '--input-pen',
+        c['input_pen'],
+        '--full-tree-pen',
+        c['full_tree_pen'],
+        '--n-jobs 4',
+	'--out-model-file ${TARGETS[1]}',
+	'--log-file ${TARGETS[0]}']
+    return env.Command(
+        targets,
+        c['make_fold_splits'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_sier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_siernet.json')]
+    c['siernet_res'].append(targets[0])
+    cmd = [
+        'python evaluate_siernet_folds.py',
+        "_output/%s_train.npz" % c['dataset'],
+        "${SOURCES[1]}",
+        '--fold ${SOURCES[0]}',
+	'--out-file ${TARGETS[0]}'
+    ]
+    return env.Command(
+        targets,
+        c['make_fold_splits'] + c['fit_siernet'][1:],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def fit_init_easier_net(env, outdir, c):
+    out_model_file = join('uci_data_regression', outdir, 'init_easier_net.pt')
+    targets = [
+        join(outdir, 'init_easier_net_log.txt'),
+        join(outdir, 'easier_net_sample.pt'),
+        join(outdir, 'eval_init_folds.json')]
+    c['easier_net_res'].append(targets[2])
+    cmd1 = [
+        'srun --cpus-per-task 4 --exclude=gizmoe1,gizmoe2',
+        'python fit_easier_net.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--fold ${SOURCES[0]}',
+        '--seed',
+        c['seed'],
+        '--num-inits',
+        NUM_INITS * 2,
+        '--input-filter',
+        '--connection-pen 0',
+        '--n-layers 5',
+        '--n-hidden 100',
+        '--num-batches 3',
+        '--max-iters 3000',
+        '--max-prox-iters 300',
+        '--input-pen',
+        c['input_pen'],
+        '--full-tree-pen',
+        c['full_tree_pen'],
+        '--n-jobs 4',
+	'--out-model-file',
+        out_model_file,
+	'--log-file ${TARGETS[0]}']
+    cmd2 = [
+        'python evaluate_ensemble_easier_net_folds.py',
+        "_output/%s_train.npz" % c['dataset'],
+        out_model_file,
+        '--fold ${SOURCES[0]}',
+	'--sample-out-model ${TARGETS[1]}',
+	'--out-file ${TARGETS[2]}'
+    ]
+    cmd3 = [
+        'rm',
+        out_model_file,
+    ]
+    cmd = cmd1 + [";"] + cmd2 + [";"] + cmd3
+    return env.Command(
+        targets,
+        c['make_fold_splits'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('layers')
+
+@nest.add_target_with_env(localenv)
+def select_sier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'selected_siernet.json'),
+        join(outdir, 'selected_siernet_log.txt')]
+    template = join("uci_data_regression", c['siernet_res'][0].replace(
+        	"layers_%d/input_pen_%.8f/full_tree_pen_%.8f/" % (LAYERS[0], INPUT_PENS[0], FULL_TREE_PENS[0]),
+                "layers_%d/input_pen_%.8f/full_tree_pen_%.8f/"))
+    cmd = [
+        'python collate_best_param.py',
+        '--template',
+        '"%s"' % template,
+        '--layer',
+        ",".join(map(str, LAYERS)),
+        '--input-pen',
+        ",".join(map(str, INPUT_PENS)),
+        '--full',
+        ",".join(map(str, FULL_TREE_PENS)),
+        '--seed',
+        c['seed'],
+        '--out-file ${TARGETS[0]}',
+        '--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['make_fold_splits'] + c['siernet_res'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def select_easier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'selected_easier_net.json'),
+        join(outdir, 'selected_easier_net_log.txt')]
+    template = join("uci_data_regression", c['easier_net_res'][0].replace(
+		"layers_%d/input_pen_%.8f/full_tree_pen_%.8f/" % (LAYERS[0], INPUT_PENS[0], FULL_TREE_PENS[0]),
+                "layers_%d/input_pen_%.8f/full_tree_pen_%.8f/"))
+    cmd = [
+        'python collate_best_param.py',
+        '--template',
+        '"%s"' % template,
+        '--full',
+        ",".join(map(str, FULL_TREE_PENS)),
+        '--input-pen',
+        ",".join(map(str, INPUT_PENS)),
+        '--layer',
+        ",".join(map(str, LAYERS)),
+        '--seed',
+        c['seed'],
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['make_fold_splits'] + c['easier_net_res'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def fit_final_siernet(env, outdir, c):
+    targets = [
+        join(outdir, 'final_siernet.pt'),
+        join(outdir, 'final_siernet_log.txt')]
+    cmd_arg = [
+        'python fit_easier_net.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'] + 123,
+        '--n-hidden 100',
+        '--num-batches 3',
+        '--max-iters 3000',
+        '--max-prox-iters 300',
+        '--connection-pen 0',
+        '--input-filter',
+        '--model-fit-params',
+        '${SOURCES[0]}',
+        '--out-model-file ${TARGETS[0]}',
+        '--log-file ${TARGETS[1]}']
+    #cmd = cmd_arg
+    cmd_arg_str = "'%s'" % ' '.join(map(str, cmd_arg))
+    cmd = [
+        'python execute.py',
+        '--clusters',
+        localenv['clusters'],
+        "${TARGETS[0]}",
+        cmd_arg_str,
+        ]
+    return env.Command(
+        targets,
+        c['select_sier_net'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_siernet(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_siernet.csv'),
+        join(outdir, 'eval_siernet_log.txt'),
+        join(outdir, 'eval_siernet.json')]
+    cmd = [
+        'python evaluate_model.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '${SOURCES[0]} easier_net',
+        '--model-name SIER-net',
+        '--dump-net-struct',
+        '--json-file ${TARGETS[2]}',
+        '--out-file ${TARGETS[0]}',
+        '--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['fit_final_siernet'],
+        ' '.join(map(str, cmd)))
+
+nest.add_aggregate('final_models', list)
+nest.add_aggregate('res_files', list)
+nest.add(
+    'final_init_seed',
+    range(NUM_INITS * 4),
+    label_func=lambda c: 'final_init_seed_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def fit_final_init_easier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'init_easier_net.pt'),
+        join(outdir, 'init_easier_net_log.txt')]
+    c['final_models'].append(targets[0])
+    cmd_arg = [
+        'python fit_easier_net.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'] + c['final_init_seed'],
+        '--n-layers 5',
+        '--n-hidden 100',
+        '--num-batches 3',
+        '--max-iters 3000',
+        '--max-prox-iters 300',
+        '--model-fit-params ${SOURCES[0]}',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    cmd_arg_str = "'%s'" % ' '.join(map(str, cmd_arg))
+    cmd = [
+        'python execute.py',
+        '--clusters',
+        localenv['clusters'],
+        "${TARGETS[0]}",
+        cmd_arg_str,
+        ]
+    return env.Command(
+        targets,
+        c['select_easier_net'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_easier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_easier_net.csv'),
+        join(outdir, 'eval_easier_net_log.txt'),
+        join(outdir, 'eval_easier_net_new.json')]
+    c['res_files'].append(targets[2])
+    cmd = [
+        'python evaluate_model.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '${SOURCES[0]} easier_net',
+        '--model-name EASIER-net',
+        '--dump-net',
+        '--json-file ${TARGETS[2]}',
+        '--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['fit_final_init_easier_net'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('final_init_seed')
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_easier_net(env, outdir, c):
+    template = join("uci_data_regression", c['final_models'][0].replace("/final_init_seed_0/", "/final_init_seed_*/"))
+    targets = [
+        join(outdir, 'eval_ensemble_easier_net.csv'),
+        join(outdir, 'eval_ensemble_easier_net_log.txt'),
+    ]
+    c['model_results'].append(targets[0])
+    cmd = [
+        'python evaluate_ensemble.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '"%s"' % template,
+        'easier_net',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['final_models'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def get_net_struct(env, outdir, c):
+    targets = [
+        join(outdir, 'net_struct.csv'),
+        join(outdir, 'support_plot.pdf')]
+    c['network_structs'].append(targets[0])
+    template = join("uci_data_regression", c['res_files'][0].replace("/final_init_seed_0/", "/final_init_seed_%d/"))
+    cmd = [
+        'python plot_network_struct.py',
+        '--nn-files',
+        '"%s"' % template,
+        '--dataset',
+        c['dataset'],
+        '--seeds',
+        NUM_INITS * 4,
+        '--out-file ${TARGETS[0]}',
+        '--plot-support-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['res_files'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def fit_lasso(env, outdir, c):
+    targets = [
+        join(outdir, 'lasso_model.sav'),
+        join(outdir, 'lasso_model_log.txt')]
+    cmd = [
+        'python fit_lasso.py',
+        '--data-file',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'],
+        '--fold-idxs ${SOURCES[0]}',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['make_fold_splits'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_lasso(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_lasso.csv'),
+        join(outdir, 'eval_lasso_log.txt')]
+    c['model_results'].append(targets[0])
+    cmd = [
+        'python evaluate_model.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '${SOURCES[0]} scikit',
+        '--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['fit_lasso'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def fit_rf(env, outdir, c):
+    targets = [
+        join(outdir, 'rf_model.sav'),
+        join(outdir, 'rf_model_log.txt')]
+    cmd = [
+        'python fit_random_forest.py',
+        '--data-file',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'],
+        '--max-depth 9',
+        '--num-trees 1000',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_rf(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_rf.csv'),
+        join(outdir, 'eval_rf_log.txt')]
+    c['model_results'].append(targets[0])
+    cmd = [
+        'python evaluate_model.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '${SOURCES[0]} scikit',
+        '--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['fit_rf'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def fit_xgb(env, outdir, c):
+    targets = [
+        join(outdir, 'xgb_model.json'),
+        join(outdir, 'xgb_model_log.txt')]
+    cmd = [
+        'srun --cpus-per-task 16',
+        'python fit_xgboost.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'],
+        '--num-round 2500,10000',
+        '--reg-alpha 0.5',
+        '--reg-lambda 0.5',
+        '--max-depth 1,3,6,9',
+        '--n-jobs 16',
+        '--fold-idxs ${SOURCES[0]}',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['make_fold_splits'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def evaluate_xgb(env, outdir, c):
+    targets = [
+        join(outdir, 'eval_xgb.csv'),
+        join(outdir, 'eval_xgb_log.txt')]
+    c['model_results'].append(targets[0])
+    cmd = [
+        'python evaluate_model.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '${SOURCES[0]} xgb',
+        '--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['fit_xgb'],
+        ' '.join(map(str, cmd)))
+
+nest.add_aggregate('plain_models', list)
+nest.add('plain_seed', range(NUM_PLAIN_INITS), label_func=lambda c: "seed_plain_%d" % c)
+
+@nest.add_target_with_env(localenv)
+def fit_plain_nn(env, outdir, c):
+    targets = [
+        join(outdir, 'plain_nn.pt'),
+        join(outdir, 'plain_nn_log.txt')]
+    cmd = [
+        'srun --cpus-per-task 1',
+        'python fit_plain_nn.py',
+        '--data',
+        "_output/%s_train.npz" % c['dataset'],
+        '--seed',
+        c['seed'] + c['plain_seed'],
+        '--fold-idxs ${SOURCES[0]}',
+        '--n-layers 10',
+        '--n-hidden 100',
+        '--full-tree 0',
+        '--num-batches 3',
+        '--max-iters 3000',
+        '--dropout 0.15',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    c['plain_models'].append(targets[0])
+    return env.Command(
+        targets,
+        c['make_fold_splits'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('plain_seed')
+
+@nest.add_target_with_env(localenv)
+def evaluate_ensemble_plain_nn(env, outdir, c):
+    template = join("uci_data_regression", c['plain_models'][0].replace("/seed_plain_0/", "/seed_plain_*/"))
+    targets = [
+        join(outdir, 'eval_ensemble_plain_nn.csv'),
+        join(outdir, 'eval_ensemble_plain_nn_log.txt'),
+    ]
+    c['model_results'].append(targets[0])
+    cmd = [
+        'python evaluate_ensemble.py',
+        "_output/%s_test.npz" % c['dataset'],
+        '"%s"' % template,
+        'plain_nnet',
+        '--model-name plain_nnet',
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['plain_models'],
+        ' '.join(map(str, cmd)))
+
+nest.pop("seed")
+
+@nest.add_target_with_env(localenv)
+def collate_results(env, outdir, c):
+    targets = [
+        join(outdir, 'all_res.csv'),
+        join(outdir, 'all_res_log.txt')
+    ]
+    template = join(
+         "uci_data_regression",
+         c['model_results'][0].rsplit("/", 1)[0],
+         "eval*csv")
+    cmd = [
+        'python collate_results.py',
+        '"%s"' % template,
+        '${TARGETS[0]}',
+        '--groupby model_class',
+        '--newcol dataset,%s' % c['dataset'],
+        '--log-file ${TARGETS[1]}',
+    ]
+    c['dataset_results'].append(targets[0])
+    return env.Command(
+        targets,
+        c['model_results'],
+        ' '.join(map(str, cmd)))
+
+
+nest.pop("dataset")
+
+@nest.add_target_with_env(localenv)
+def collate_results_tex(env, outdir, c):
+    targets = [
+        join(outdir, 'all_dataset_res.tex')
+    ]
+    template = join(
+         "uci_data_regression",
+         outdir,
+         "*/all_res.csv")
+    cmd = [
+        'python collate_results.py',
+        '"%s"' % template,
+        '${TARGETS[0]}',
+        '--pivot model_class,dataset',
+    ]
+    return env.Command(
+        targets,
+        c['dataset_results'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def collate_results(env, outdir, c):
+    targets = [
+        join(outdir, 'all_dataset_res.csv'),
+        join(outdir, 'all_dataset_res_log.txt')
+    ]
+    template = join(
+         "uci_data_regression",
+         outdir,
+         "*/all_res.csv")
+    cmd = [
+        'python collate_results.py',
+        '"%s"' % template,
+        '${TARGETS[0]}',
+        #'--pivot model_class,dataset',
+        '--log-file ${TARGETS[1]}',
+    ]
+    return env.Command(
+        targets,
+        c['dataset_results'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def plot_all_results(env, outdir, c):
+    targets = [
+        join(outdir, 'all_dataset_res.pdf'),
+    ]
+    cmd = [
+        'python plot_table.py',
+        '${SOURCES[0]}',
+        '${TARGETS[0]}',
+        '--ymin 0.0005',
+        '--ymax 1',
+    ]
+    return env.Command(
+        targets,
+        c['collate_results'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def collate_net_structs(env, outdir, c):
+    targets = [
+        join(outdir, 'all_net_structs.tex')
+    ]
+    template = join(
+         "uci_data_regression",
+         outdir,
+         "*/*/net_struct.csv")
+    cmd = [
+        'python collate_results.py',
+        '"%s"' % template,
+        '${TARGETS[0]}',
+    ]
+    return env.Command(
+        targets,
+        c['network_structs'],
+        ' '.join(map(str, cmd)))

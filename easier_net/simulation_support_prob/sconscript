@@ -1,0 +1,183 @@
+import os
+
+from os.path import join
+from nestly.scons import SConsWrap
+from nestly import Nest
+from SCons.Script import Environment, Command, AddOption
+import numpy as np
+
+Import('env')
+localenv = env.Clone()
+
+nest = SConsWrap(Nest(), localenv['output'], alias_environment=localenv)
+
+KFOLD = 4
+NUM_INITS = 1 # 100
+NUM_MASK_INITS = 4
+MAX_ITERS = 3000
+MAX_PROX_ITERS = 300
+FULL_TREE_PENS = [0.001]
+INPUT_PENS = [0.05]
+
+nest.add(
+    'mean_func',
+    ['curvy'])
+
+nest.add(
+    'n_inputs',
+    [8],
+    label_func=lambda c: 'inputs_%d' % c)
+
+nest.add_aggregate('corr_res', list)
+nest.add(
+    'corr',
+    [0, 0.5, 0.8, 0.9, 0.95, 1],
+    label_func=lambda c: 'corr_%.2f' % c)
+
+nest.add(
+    'snr',
+    [2],
+    label_func=lambda c: 'snr_%.2f' % c)
+
+nest.add(
+    'n_obs',
+    [500],
+    label_func=lambda c: 'obs_%d' % c)
+
+nest.add(
+    'seed',
+    range(1),
+    label_func=lambda c: 'seed_%d' % c)
+
+@nest.add_target_with_env(localenv)
+def generate(env, outdir, c):
+    targets = [
+        join(outdir, 'train_data.npz'),
+        join(outdir, 'train_data_log.txt')]
+    cmd = [
+        'python generate_data.py',
+        '--seed',
+        c['seed'],
+        '--mean-func',
+        c['mean_func'],
+        '--x-scale 1',
+        '--correlation',
+        c['corr'],
+        '--num-corr',
+        1 if c['corr'] > 0 else 0,
+        '--snr',
+        c['snr'],
+        '--n-obs',
+        c['n_obs'],
+        '--n-inputs',
+        c['n_inputs'],
+        '--n-relevant',
+        c['n_inputs']//2,
+	'--out-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+nest.add(
+    'input_pen',
+    INPUT_PENS,
+    label_func=lambda c: 'input_pen_%.6f' % c)
+
+nest.add(
+    'full_tree_pen',
+    FULL_TREE_PENS,
+    label_func=lambda c: 'full_tree_pen_%.6f' % c)
+
+nest.add_aggregate('models', list)
+nest.add(
+    'init_seed',
+    range(NUM_INITS),
+    label_func=lambda c: 'seed_init_%d' % int(c))
+
+@nest.add_target_with_env(localenv)
+def fit_init_easier_net(env, outdir, c):
+    targets = [
+        join(outdir, 'init_easier_net.pt'),
+        join(outdir, 'init_easier_net_log.txt')]
+    c['models'].append(targets[0])
+    cmd = [
+        'srun -p restart --cpus-per-task 2',
+        'python fit_easier_net.py',
+        '--data ${SOURCES[0]}',
+        '--seed',
+        c['seed'] + c['init_seed'],
+        '--n-layers 5',
+        '--n-hidden 50',
+        '--num-batches 3',
+        '--max-iters',
+        MAX_ITERS,
+        '--max-prox-iters',
+        MAX_PROX_ITERS,
+        '--input-pen',
+        c['input_pen'],
+        '--full-tree-pen',
+        c['full_tree_pen'],
+        '--n-jobs 1',
+	'--out-model-file ${TARGETS[0]}',
+	'--log-file ${TARGETS[1]}']
+    return env.Command(
+        targets,
+        c['generate'],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def get_support(env, outdir, c):
+    targets = [
+        join(outdir, 'support.txt')]
+    cmd = [
+        'grep big',
+        '${SOURCES[1]}',
+        '| tail -n 1',
+        '> ${TARGETS[0]}']
+    return env.Command(
+        targets,
+        c['fit_init_easier_net'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('init_seed')
+
+@nest.add_target_with_env(localenv)
+def plot_probs(env, outdir, c):
+    template = join("simulation_support_prob", c['models'][0].replace("/seed_init_0/", "/seed_init_*/"))
+    targets = [
+        join(outdir, 'support_probs.csv')]
+    c['corr_res'].append(targets[0])
+    cmd = [
+        'python plot_support_prob.py',
+        '--corr',
+        c['corr'],
+        '--n-inputs',
+        c['n_inputs'],
+        '--fitted-model',
+        '"%s"' % template,
+        '--out-support ${TARGETS[0]}',
+    ]
+    return env.Command(
+        targets,
+        c['models'],
+        ' '.join(map(str, cmd)))
+
+nest.pop('corr')
+@nest.add_target_with_env(localenv)
+def collate_results(env, outdir, c):
+    template = join("simulation_support_prob", c['corr_res'][0].replace("/corr_0.00/", "/corr_*/"))
+    targets = [
+        join(outdir, 'all_supports.tex')
+    ]
+    cmd = [
+        'python collate_results.py',
+        '"%s"' % template,
+        '${TARGETS[0]}',
+        '--pivot corr,input',
+    ]
+    return env.Command(
+        targets,
+        c['corr_res'],
+        ' '.join(map(str, cmd)))
