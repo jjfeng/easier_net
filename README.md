@@ -1,8 +1,7 @@
 # EASIER-net
 
-Python and R code for fitting EASIER-nets and reproducing all results from the paper.
+Python code for fitting EASIER-nets and reproducing all results from the paper.
 The python code uses [PyTorch](https://pytorch.org/).
-The R code uses [Tensorflow on R](https://tensorflow.rstudio.com/).
 
 ## Quick-start
 
