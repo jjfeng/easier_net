@@ -3,6 +3,8 @@
 Python code for fitting EASIER-nets and reproducing all results from the paper.
 The python code uses [PyTorch](https://pytorch.org/).
 
+R code for fitting EASIER-net is available at https://github.com/jjfeng/easier_net_R.
+
 ## Quick-start
 
 Setup a python virtual environment (code runs for python 3.6) with the appropriate packages from `requirements.txt`.
