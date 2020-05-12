@@ -1,5 +1,7 @@
 # EASIER-net
 
+Feng, Jean, and Noah Simon. 2020. “Ensembled Sparse-Input Hierarchical Networks for High-Dimensional Datasets.” arXiv [stat.ML]. arXiv. http://arxiv.org/abs/2005.04834.
+
 Python code for fitting EASIER-nets and reproducing all results from the paper.
 The python code uses [PyTorch](https://pytorch.org/).
 
