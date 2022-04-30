@@ -21,8 +21,10 @@ from torch.utils.data import DataLoader
 
 from sklearn.model_selection import GridSearchCV
 
-from .sier_net import SierNetEstimator
-from .common import process_params
+import sier_net
+import common
+# from .sier_net import SierNetEstimator
+# from .common import process_params
 
 
 def parse_args(args):
@@ -118,8 +120,8 @@ def _fit(
     X,
     y,
     train,
-    max_iters: int = 100,
-    max_prox_iters: int = 100,
+    # max_iters: int = 100,
+    # max_prox_iters: int = 100,
     seed: int = 0,
 ) -> list:
     torch.manual_seed(seed)
@@ -128,7 +130,7 @@ def _fit(
 
     my_estimator = clone(estimator)
     my_estimator.fit(
-        X_train, y_train, max_iters=max_iters, max_prox_iters=max_prox_iters
+        X_train, y_train #, max_iters=max_iters, max_prox_iters=max_prox_iters
     )
     return my_estimator
 
@@ -174,7 +176,7 @@ def main(args=sys.argv[1:]):
     Fit EASIER-net
     """
     print("Fitting EASIER-net")
-    base_estimator = SierNetEstimator(
+    base_estimator = sier_net.SierNetEstimator(
         n_inputs=n_inputs,
         input_filter_layer=args.input_filter_layer,
         n_layers=args.n_layers,
@@ -184,6 +186,8 @@ def main(args=sys.argv[1:]):
         input_pen=args.input_pen,
         batch_size=(n_obs // args.num_batches + 1),
         num_classes=args.num_classes,
+        max_iters=args.max_iters,
+        max_prox_iters=args.max_prox_iters,
         # Weight classes by inverse of their observed ratios. Trying to balance classes
         weight=n_obs / (args.num_classes * np.bincount(y.flatten()))
         if args.num_classes >= 2
@@ -197,7 +201,7 @@ def main(args=sys.argv[1:]):
         parallel = Parallel(n_jobs=args.n_jobs, verbose=True, pre_dispatch=args.n_jobs)
         all_estimators = parallel(
             delayed(_fit)(
-                base_estimator,
+                base_estimator, #single sier net
                 x,
                 y,
                 train=fold_idx_dict[fold_idx]["train"],
@@ -234,8 +238,8 @@ def main(args=sys.argv[1:]):
                 x,
                 y,
                 train=np.arange(x.shape[0]),
-                max_iters=args.max_iters,
-                max_prox_iters=args.max_prox_iters,
+                # max_iters=args.max_iters,
+                # max_prox_iters=args.max_prox_iters,
                 seed=args.seed + init_idx,
             )
             for init_idx in range(args.num_inits)
