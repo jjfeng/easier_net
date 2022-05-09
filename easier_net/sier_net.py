@@ -9,44 +9,23 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
-#from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 from network import SierNet
 
-
-    #     max_iters: int = 100,
-    #     max_prox_iters: int = 100,
-    #     state_dict: dict = None,
-    # ) -> None:
-
-       # n_inputs: int=1,
-        # input_filter_layer:bool =False,
-        # n_layers: int = 1,
-        # n_hidden: int = 0,
-        # n_out: int = 1,
-        # full_tree_pen: float = 0.001,
-        # input_pen: float = 0,
-        # batch_size: int = 3,
-        # num_classes: int = 0,
-        # weight: list = None,
-        # max_iters: int = 40,
-        # max_prox_iters: int = 0,
-        # connection_pen: float = 0,
-        # state_dict: dict = None,
-class SierNetEstimator(): #adding BaseEstimator
+class SierNetEstimator(): 
     """
     This first a single sparse-input hierarchical network (SIER-net).
     """
     def __init__(
         self,
-        n_inputs=4, #to allow mat1 and mat2 be multiplied (3x4 and 4x0) (i think)
+        n_inputs=4,
         input_filter_layer=False,
         n_layers= 5,
         n_hidden= 50,
         n_out= 1,
         full_tree_pen= 0.001,
         input_pen= 0,
-        batch_size= 3, #torch.Size([3])?
+        batch_size= 3, 
         num_classes= 0,
         weight= None,
         max_iters= 40,
@@ -83,9 +62,9 @@ class SierNetEstimator(): #adding BaseEstimator
         )
 
 
-        # if state_dict is not None:
-        #     self.net.load_state_dict(state_dict, strict=False)
-        #     print("loaded state dict")
+        if state_dict is not None:
+            self.net.load_state_dict(state_dict, strict=False)
+            print("loaded state dict")
 
     def load_state_dict(self, state_dict):
         self.net.load_state_dict(state_dict, strict=False)
@@ -264,10 +243,7 @@ class SierNetEstimator(): #adding BaseEstimator
         self,
         x: np.ndarray,
         y: np.ndarray,
-    #     max_iters: int = 100,
-    #     max_prox_iters: int = 100,
-    #     state_dict: dict = None,
-    ) -> None:
+    ):
         # Assemble data
         self.net = SierNet(
         input_filter_layer=self.input_filter_layer,
@@ -285,9 +261,7 @@ class SierNetEstimator(): #adding BaseEstimator
         dataset = TensorDataset(torch.Tensor(x), torch_y)
 
         trainloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
-        # if state_dict is not None:
-        #     self.net.load_state_dict(state_dict, strict=False)
-        #     print("loaded state dict")
+
         optimizer = optim.Adam(self.net.parameters(), lr=0.001)
 
         for epoch in range(self.max_iters):  # loop over the set multiple times

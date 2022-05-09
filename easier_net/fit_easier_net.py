@@ -23,9 +23,6 @@ from sklearn.model_selection import GridSearchCV
 
 import sier_net
 import common
-# from .sier_net import SierNetEstimator
-# from .common import process_params
-
 
 def parse_args(args):
     """ parse command line arguments """
