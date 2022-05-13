@@ -36,12 +36,12 @@ def parse_args(args):
         default=12,
     )
     parser.add_argument("--data-file", type=str, default="_output/data.npz")
-    parser.add_argument(
-        "--fold-idxs-file",
-        type=str,
-        default=None,
-        help="If specified, the code will fit a separate model per fold, in a K-fold CV fashion. This pickle file specifies the indices in each fold. The fold indices should be produced using make_fold_idx.py.",
-    )
+    # parser.add_argument(
+    #     "--fold-idxs-file",
+    #     type=str,
+    #     default=None,
+    #     help="If specified, the code will fit a separate model per fold, in a K-fold CV fashion. This pickle file specifies the indices in each fold. The fold indices should be produced using make_fold_idx.py.",
+    # )
     parser.add_argument(
         "--num-classes",
         type=int,
@@ -70,7 +70,7 @@ def parse_args(args):
         default=0,
         help="Number of batch proximal gradient descent epochs (after running Adam)",
     )
-    parser.add_argument("--bootstrap", action="store_true", default=False)
+    # parser.add_argument("--bootstrap", action="store_true", default=False)
     parser.add_argument(
         "--full-tree-pen",
         type=float,
@@ -94,7 +94,7 @@ def parse_args(args):
     )
     parser.add_argument("--log-file", type=str, default="_output/log_nn.txt")
     parser.add_argument("--out-model-file", type=str, default="_output/nn.pt")
-    parser.set_defaults(bootstrap=False)
+    # parser.set_defaults(bootstrap=False)
     args = parser.parse_args()
 
     if args.model_fit_params_file is not None:
@@ -148,26 +148,27 @@ def main(args=sys.argv[1:]):
     """
     dataset_dict = np.load(args.data_file)
     x = dataset_dict["x"]
-    orig_y = dataset_dict["y"]
+    y = dataset_dict["y"]
+
     n_inputs = x.shape[1]
     n_out = 1 if args.num_classes == 0 else args.num_classes
     n_obs = x.shape[0]
 
-    """
-    Bootstrap sample
-    """
-    if args.bootstrap:
-        not_same_uniq_classes = True
-        while not_same_uniq_classes:
-            chosen_idxs = np.random.choice(n_obs, size=n_obs, replace=True)
-            x = x[chosen_idxs]
-            y = orig_y.flatten()[chosen_idxs].reshape((-1, 1))
-            if args.num_classes >= 2:
-                not_same_uniq_classes = np.unique(y).size != np.unique(orig_y).size
-            else:
-                not_same_uniq_classes = False
-    else:
-        y = orig_y
+    # """
+    # Bootstrap sample
+    # """
+    # if args.bootstrap:
+    #     not_same_uniq_classes = True
+    #     while not_same_uniq_classes:
+    #         chosen_idxs = np.random.choice(n_obs, size=n_obs, replace=True)
+    #         x = x[chosen_idxs]
+    #         y = orig_y.flatten()[chosen_idxs].reshape((-1, 1))
+    #         if args.num_classes >= 2:
+    #             not_same_uniq_classes = np.unique(y).size != np.unique(orig_y).size
+    #         else:
+    #             not_same_uniq_classes = False
+    # else:
+    #     y = orig_y 
 
     """
     Fit EASIER-net
@@ -190,68 +191,68 @@ def main(args=sys.argv[1:]):
         if args.num_classes >= 2
         else None,
     )
-    if args.fold_idxs_file is not None:
-        with open(args.fold_idxs_file, "rb") as f:
-            fold_idx_dict = pickle.load(f)
-            num_folds = len(fold_idx_dict)
+    # if args.fold_idxs_file is not None:
+    #     with open(args.fold_idxs_file, "rb") as f:
+    #         fold_idx_dict = pickle.load(f)
+    #         num_folds = len(fold_idx_dict)
 
-        parallel = Parallel(n_jobs=args.n_jobs, verbose=True, pre_dispatch=args.n_jobs)
-        all_estimators = parallel(
-            delayed(_fit)(
-                base_estimator, #single sier net
-                x,
-                y,
-                train=fold_idx_dict[fold_idx]["train"],
-                max_iters=args.max_iters,
-                max_prox_iters=args.max_prox_iters,
-                seed=args.seed + num_folds * init_idx + fold_idx,
-            )
-            for fold_idx, init_idx in itertools.product(
-                range(num_folds), range(args.num_inits)
-            )
+    #     parallel = Parallel(n_jobs=args.n_jobs, verbose=True, pre_dispatch=args.n_jobs)
+    #     all_estimators = parallel(
+    #         delayed(_fit)(
+    #             base_estimator, #single sier net
+    #             x,
+    #             y,
+    #             train=fold_idx_dict[fold_idx]["train"],
+    #             max_iters=args.max_iters,
+    #             max_prox_iters=args.max_prox_iters,
+    #             seed=args.seed + num_folds * init_idx + fold_idx,
+    #         )
+    #         for fold_idx, init_idx in itertools.product(
+    #             range(num_folds), range(args.num_inits)
+    #         )
+    #     )
+
+    #     # Just printing things from the first fold
+    #     logging.info(f"sample estimator 0 fold 0")
+    #     all_estimators[0].net.get_net_struct()
+
+    #     assert (num_folds * args.num_inits) == len(all_estimators)
+
+    #     meta_state_dict = all_estimators[0].get_params()
+    #     meta_state_dict["state_dicts"] = [
+    #         [None for _ in range(num_folds)] for _ in range(args.num_inits)
+    #     ]
+    #     for (fold_idx, init_idx), estimator in zip(
+    #         itertools.product(range(num_folds), range(args.num_inits)), all_estimators
+    #     ):
+    #         meta_state_dict["state_dicts"][init_idx][
+    #             fold_idx
+    #         ] = estimator.net.state_dict()
+    #     torch.save(meta_state_dict, args.out_model_file)
+    # else:
+    all_estimators = [
+        _fit(
+            base_estimator,
+            x,
+            y,
+            train=np.arange(x.shape[0]),
+            # max_iters=args.max_iters,
+            # max_prox_iters=args.max_prox_iters,
+            seed=args.seed + init_idx,
         )
+        for init_idx in range(args.num_inits)
+    ]
+    meta_state_dict = all_estimators[0].get_params()
+    meta_state_dict["state_dicts"] = [
+        estimator.net.state_dict() for estimator in all_estimators
+    ]
+    torch.save(meta_state_dict, args.out_model_file)
 
-        # Just printing things from the first fold
-        logging.info(f"sample estimator 0 fold 0")
-        all_estimators[0].net.get_net_struct()
+    logging.info("FINAL STRUCT idx 0")
+    all_estimators[0].net.get_net_struct()
 
-        assert (num_folds * args.num_inits) == len(all_estimators)
-
-        meta_state_dict = all_estimators[0].get_params()
-        meta_state_dict["state_dicts"] = [
-            [None for _ in range(num_folds)] for _ in range(args.num_inits)
-        ]
-        for (fold_idx, init_idx), estimator in zip(
-            itertools.product(range(num_folds), range(args.num_inits)), all_estimators
-        ):
-            meta_state_dict["state_dicts"][init_idx][
-                fold_idx
-            ] = estimator.net.state_dict()
-        torch.save(meta_state_dict, args.out_model_file)
-    else:
-        all_estimators = [
-            _fit(
-                base_estimator,
-                x,
-                y,
-                train=np.arange(x.shape[0]),
-                # max_iters=args.max_iters,
-                # max_prox_iters=args.max_prox_iters,
-                seed=args.seed + init_idx,
-            )
-            for init_idx in range(args.num_inits)
-        ]
-        meta_state_dict = all_estimators[0].get_params()
-        meta_state_dict["state_dicts"] = [
-            estimator.net.state_dict() for estimator in all_estimators
-        ]
-        torch.save(meta_state_dict, args.out_model_file)
-
-        logging.info("FINAL STRUCT idx 0")
-        all_estimators[0].net.get_net_struct()
-
-    logging.info("complete")
-    logging.info("TIME %f", time.time() - st_time)
+logging.info("complete")
+logging.info("TIME %f", time.time() - st_time)
 
 
 if __name__ == "__main__":

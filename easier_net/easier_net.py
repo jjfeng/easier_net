@@ -8,6 +8,8 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
+from keras.models import model_from_json
+
 import pickle
 import sier_net 
 from sklearn.base import clone
@@ -18,17 +20,17 @@ class EasierNetEstimator():
     def __init__(
         self,
         num_classes=0, #Equal to 0 if doing a regression, otherwise number of classes for binary / multi-classification
-        input_filter_layer=True, #
+        input_filter_layer=True, #Scales the inputs by parameter β
         n_layers=2, #Number of hidden layers
         n_hidden=10, #Number of hidden nodes in each layer
         n_estimators=5, #Size of ensemble; number of SIER-nets being ensembled.
         max_iters=40, #Number of epochs to run Adam     
         max_prox_iters=0, #Number of epochs to run batch proximal gradient descent
-        full_tree_pen=0.001, #Lambda 1 [TODO: DESCRIBE!]
-        input_pen=0, #Lambda 2
+        input_pen=0, #λ1; Controls the input sparsity         
+        full_tree_pen=0.001, #λ2; controls the number of active layers and hidden nodes 
         num_batches=3, #number of mini-batches for Adam
-        n_jobs=16, #
-        model_fit_params_file=None,
+        n_jobs=16, #TODO: ..
+        model_fit_params_file=None, #A json file that specifies what the hyperparameters are. If given, this will override the arguments passed in.
         # log_file="_output/log_nn.txt",
         # out_model_file="_output/nn.pt",
     ):
@@ -45,8 +47,11 @@ class EasierNetEstimator():
         self.num_batches=num_batches
         self.n_jobs=n_jobs
         self.model_fit_params_file=model_fit_params_file
-        # TODO: if model_fit_params_file == true, don't use self.estimators
-        self.estimators=self._generate_estimators()
+
+        if self.model_fit_params_file is not None:
+            self.load_model(model_fit_params_file) 
+        else:
+            self.estimators=self._generate_estimators()
 
         assert num_classes != 1
         assert input_filter_layer
@@ -72,21 +77,50 @@ class EasierNetEstimator():
         return estimators
 
     def write_model(self, filename): #save and write model to file
-        #filename ex) "easiernet_estimators.pkl"
-        with open(filename, 'wb') as file:
-            pickle.dump(self.estimators, file)
+        #from fit_easier_net
+        meta_state_dict = self.estimators[0].get_params()
+        meta_state_dict["state_dicts"] = [
+            est.net.state_dict() for est in self.estimators
+        ]
+        torch.save(meta_state_dict, filename)
+        self.estimators[0].net.get_net_struct()
 
-    def load_model(self):
-        #TODO: need to load in each of the state_dicts .. this is not right..
-        #self.net.load_state_dict(state_dict, strict=False)
+        #json way
+        # for est in self.estimators:
+        #     model_json = est.to_json() #model_fit_params_file is json
+        #     with open("model.json", "w") as json_file:
+        #         json_file.write(model_json)
+        #     print(f"[INFO]>>Save {model_json}.")
+
+        #pickle way
+        # #filename ex) "easiernet_estimators.pkl"
+        # with open(filename, 'wb') as file:
+        #     pickle.dump(self.estimators, file)
+
+    def load_all_models(self, filename):
+        estimators=sier_net.SierNetEstimator()
+        #definitely wrong, need to load for each state_dicts
+        estimators.load_state_dict(torch.load(filename, map_location='cpu'), strict=False) #to avoid gpu ram surge
+
+
+        #loading json way
+        # estimators = []
+        # for i in range(self.n_estimators):
+        #     filename = 'models/model_' + str(i) + '.json'
+        #     est = model_from_json(self.model_fit_params_file)
+        #     estimators.append(est)
+        #     print(f"[INFO]>>loaded {filename}.")
+        # return estimators
+
+        #loading pickle way
         with open(self.model_fit_params_file, 'rb') as file:
-            self.estimators = pickle.load(file) 
+            estimators = pickle.load(file) 
             for est in self.estimators:
-                self.full_tree_pen = est["full_tree_pen"]
-                self.input_pen = est["input_pen"]
-                self.input_filter_layer = est["input_filter_layer"]
-                self.n_layers = est["n_layers"]
-                self.n_hidden = est["n_hidden"]
+                est.full_tree_pen = self.estimators["full_tree_pen"]
+                est.input_pen = self.estimators["input_pen"]
+                est.input_filter_layer = self.estimators["input_filter_layer"]
+                est.n_layers = self.estimators["n_layers"]
+                est.n_hidden = self.estimators["n_hidden"]
 
             assert self.num_classes != 1
             assert self.input_filter_layer
