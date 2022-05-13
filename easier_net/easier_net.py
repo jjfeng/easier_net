@@ -97,10 +97,10 @@ class EasierNetEstimator():
         # with open(filename, 'wb') as file:
         #     pickle.dump(self.estimators, file)
 
-    def load_all_models(self, filename):
+    def load_all_models(self):
         estimators=sier_net.SierNetEstimator()
         #definitely wrong, need to load for each state_dicts
-        estimators.load_state_dict(torch.load(filename, map_location='cpu'), strict=False) #to avoid gpu ram surge
+        estimators.load_state_dict(torch.load(self.model_fit_params_file, map_location='cpu'), strict=False) #to avoid gpu ram surge
 
 
         #loading json way
