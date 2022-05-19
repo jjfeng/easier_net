@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import GridSearchCV
 
 import sier_net
+import easier_net
 import common
 
 def parse_args(args):
@@ -36,12 +37,7 @@ def parse_args(args):
         default=12,
     )
     parser.add_argument("--data-file", type=str, default="_output/data.npz")
-    # parser.add_argument(
-    #     "--fold-idxs-file",
-    #     type=str,
-    #     default=None,
-    #     help="If specified, the code will fit a separate model per fold, in a K-fold CV fashion. This pickle file specifies the indices in each fold. The fold indices should be produced using make_fold_idx.py.",
-    # )
+
     parser.add_argument(
         "--num-classes",
         type=int,
@@ -92,6 +88,7 @@ def parse_args(args):
         type=str,
         help="A json file that specifies what the hyperparameters are. If given, this will override the arguments passed in.",
     )
+    #TODO: DELETE?
     parser.add_argument("--log-file", type=str, default="_output/log_nn.txt")
     parser.add_argument("--out-model-file", type=str, default="_output/nn.pt")
     # parser.set_defaults(bootstrap=False)
@@ -174,22 +171,23 @@ def main(args=sys.argv[1:]):
     Fit EASIER-net
     """
     print("Fitting EASIER-net")
-    base_estimator = sier_net.SierNetEstimator(
-        n_inputs=n_inputs,
+    base_estimator = easier_net.EasierNetEstimator(
+        # n_inputs=n_inputs, 
         input_filter_layer=args.input_filter_layer,
         n_layers=args.n_layers,
         n_hidden=args.n_hidden,
-        n_out=n_out,
+        # n_out=n_out,
         full_tree_pen=args.full_tree_pen,
         input_pen=args.input_pen,
-        batch_size=(n_obs // args.num_batches + 1),
+        num_batches = args.num_batches,
+        # batch_size=(n_obs // args.num_batches + 1),
         num_classes=args.num_classes,
         max_iters=args.max_iters,
         max_prox_iters=args.max_prox_iters,
         # Weight classes by inverse of their observed ratios. Trying to balance classes
-        weight=n_obs / (args.num_classes * np.bincount(y.flatten()))
-        if args.num_classes >= 2
-        else None,
+        # weight=n_obs / (args.num_classes * np.bincount(y.flatten()))
+        # if args.num_classes >= 2
+        # else None,
     )
     # if args.fold_idxs_file is not None:
     #     with open(args.fold_idxs_file, "rb") as f:
@@ -230,18 +228,20 @@ def main(args=sys.argv[1:]):
     #         ] = estimator.net.state_dict()
     #     torch.save(meta_state_dict, args.out_model_file)
     # else:
-    all_estimators = [
-        _fit(
-            base_estimator,
-            x,
-            y,
-            train=np.arange(x.shape[0]),
-            # max_iters=args.max_iters,
-            # max_prox_iters=args.max_prox_iters,
-            seed=args.seed + init_idx,
-        )
-        for init_idx in range(args.num_inits)
-    ]
+#TODO: get rid of loop -> sklearn instead.
+    all_estimators = base_estimator.fit(x[np.arange(x.shape[0])], y[np.arange(x.shape[0])])
+    #     [
+    #     _fit(
+    #         base_estimator,
+    #         x,
+    #         y,
+    #         train=np.arange(x.shape[0]),
+    #         # max_iters=args.max_iters,
+    #         # max_prox_iters=args.max_prox_iters,
+    #         seed=args.seed + init_idx,
+    #     )
+    #     for init_idx in range(args.num_inits)
+    # ]
     meta_state_dict = all_estimators[0].get_params()
     meta_state_dict["state_dicts"] = [
         estimator.net.state_dict() for estimator in all_estimators
@@ -251,8 +251,8 @@ def main(args=sys.argv[1:]):
     logging.info("FINAL STRUCT idx 0")
     all_estimators[0].net.get_net_struct()
 
-logging.info("complete")
-logging.info("TIME %f", time.time() - st_time)
+    logging.info("complete")
+    logging.info("TIME %f", time.time() - st_time)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from network import SierNet
 
-class SierNetEstimator(): 
+class SierNetEstimator: 
     """
     This first a single sparse-input hierarchical network (SIER-net).
     """
@@ -60,7 +60,14 @@ class SierNetEstimator():
         self.score_criterion = (
             nn.CrossEntropyLoss() if self.num_classes >= 2 else nn.MSELoss()
         )
-
+        # Assemble data
+        self.net = SierNet(
+            input_filter_layer=self.input_filter_layer,
+            n_layers=self.n_layers,
+            n_input=self.n_inputs, 
+            n_hidden=self.n_hidden,
+            n_out=self.n_out,
+        )
 
         if state_dict is not None:
             self.net.load_state_dict(state_dict, strict=False)
@@ -244,15 +251,8 @@ class SierNetEstimator():
         x: np.ndarray,
         y: np.ndarray,
     ):
-        # Assemble data
-        self.net = SierNet(
-        input_filter_layer=self.input_filter_layer,
-        n_layers=self.n_layers,
-        n_input=x.shape[1], 
-        n_hidden=self.n_hidden,
-        n_out=self.n_out,
-        )
-        # assert x.shape[1] == self.n_inputs #asserting cols == num inputs
+        assert x.shape[1] == self.n_inputs #asserting cols == num inputs
+        
         torch_y = (
             torch.Tensor(y)
             if self.num_classes == 0
