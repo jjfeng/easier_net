@@ -1,4 +1,4 @@
-from ensurepip import bootstrap
+from typing import List
 import numpy as np
 
 import torch
@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 
 import pickle
 import sier_net 
-from sklearn.base import clone
 
 
 class EasierNetEstimator:
@@ -28,7 +27,6 @@ class EasierNetEstimator:
         input_pen=0, #λ1; Controls the input sparsity         
         full_tree_pen=0.001, #λ2; controls the number of active layers and hidden nodes 
         num_batches=3, #number of mini-batches for Adam
-        # n_jobs=16, #TODO: ..
         model_fit_params_file=None, #A json file that specifies what the hyperparameters are. If given, this will override the arguments passed in.
     ):
 
@@ -42,15 +40,14 @@ class EasierNetEstimator:
         self.full_tree_pen=full_tree_pen
         self.input_pen=input_pen
         self.num_batches=num_batches
-        # self.n_jobs=n_jobs
         self.model_fit_params_file=model_fit_params_file
         self.score_criterion = (
             nn.CrossEntropyLoss() if self.num_classes >= 2 else nn.MSELoss()
         )       
         if self.model_fit_params_file is not None:
-            self.estimators = self.load_model(model_fit_params_file) 
+            self.estimators: List[sier_net.SierNetEstimator] = self.load_model(model_fit_params_file) 
         else:
-            self.estimators=self._generate_estimators()
+            self.estimators: List[sier_net.SierNetEstimator] = self._generate_estimators()
 
         assert num_classes != 1
         assert input_filter_layer
@@ -59,78 +56,52 @@ class EasierNetEstimator:
         estimators=[]
         for est in range(self.n_estimators): #TODO: i -> est?
             est=sier_net.SierNetEstimator(
-                # random_state=i,
                 num_classes=self.num_classes,
                 input_filter_layer=self.input_filter_layer,
                 n_hidden= self.n_hidden,
-                # n_estimators=self.n_estimators,
                 max_iters=self.max_iters,
                 max_prox_iters=self.max_prox_iters,
                 full_tree_pen=self.full_tree_pen,
                 input_pen=self.input_pen,
-                # num_batches=self.num_batches,
-                # n_jobs=self.n_jobs,
             ) 
             
             estimators.append(est)
 
         return estimators
 
-            #TODO: fix? this import sier_net -> from sier_net import SierNetEstimator()
-
 
     def write_model(self, filename): #save and write model to file
-        #from fit_easier_net
-        meta_state_dict = self.estimators[0].get_params()
+        #save as .pt file
+        meta_state_dict = self.get_params()
         meta_state_dict["state_dicts"] = [
             est.net.state_dict() for est in self.estimators
         ]
         torch.save(meta_state_dict, filename)
-
-
-#TODO: delete this old fx 
-    # def load_model(self):
-    #     estimators=sier_net.SierNetEstimator()
-    #     #definitely wrong, need to load for each state_dicts
-    #     estimators.load_state_dict(torch.load(self.model_fit_params_file, map_location='cpu'), strict=False) #to avoid gpu ram surge
- #TODO: new - still need to fix a bit
 
     def load_model(self, model_fit_params_file):
         estimators = []
         state_dict_list = torch.load(model_fit_params_file, map_location='cpu') #to avoid gpu ram surge
         for state_dict in state_dict_list:
             sier_net = sier_net.SierNetEstimator(
+                n_inputs=self.n_inputs,
                 num_classes=self.num_classes,
                 input_filter_layer=self.input_filter_layer,
                 n_hidden= self.n_hidden,
-                # n_estimators=self.n_estimators,
                 max_iters=self.max_iters,
                 max_prox_iters=self.max_prox_iters,
                 full_tree_pen=self.full_tree_pen,
                 input_pen=self.input_pen,
-                # num_batches=self.num_batches,
-                # n_jobs=self.n_jobs,
             )
             sier_net.load_state_dict(state_dict)
             estimators.append(sier_net)
         return estimators
-
-        #loading json way
-        # estimators = []
-        # for i in range(self.n_estimators):
-        #     filename = 'models/model_' + str(i) + '.json'
-        #     est = model_from_json(self.model_fit_params_file)
-        #     estimators.append(est)
-        #     print(f"[INFO]>>loaded {filename}.")
-        # return estimators
-
 
     def fit(
         self,
         x: np.ndarray,
         y: np.ndarray,
     ):
-
+        self.n_inputs=x.shape[1]
         for est in self.estimators:
             est.fit(x, y)
        
@@ -165,6 +136,7 @@ class EasierNetEstimator:
 
     def get_params(self, deep=False) -> dict:
         return{
+            "n_inputs": self.n_inputs, #dependent on data
             "num_classes": self.num_classes,
             "input_filter_layer": self.input_filter_layer,
             "n_layers": self.n_layers,
@@ -175,7 +147,6 @@ class EasierNetEstimator:
             "max_iters": self.max_iters,
             "max_prox_iters": self.max_prox_iters,
             "num_batches": self.num_batches,
-            # "n_jobs": self.n_jobs,
         }
 
     def set_params(self, **param_dict):
@@ -198,8 +169,6 @@ class EasierNetEstimator:
         if "max_prox_iters" in param_dict:
             self.max_prox_iters = param_dict["max_prox_iters"]             
         if "num_batches" in param_dict:
-            self.num_batches = param_dict["num_batches"]  
-        # if "n_jobs" in param_dict:
-        #     self.n_jobs = param_dict["n_jobs"]      
+            self.num_batches = param_dict["num_batches"]       
 
         return self

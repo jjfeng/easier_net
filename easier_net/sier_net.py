@@ -251,7 +251,7 @@ class SierNetEstimator:
         x: np.ndarray,
         y: np.ndarray,
     ):
-        assert x.shape[1] == self.n_inputs #asserting cols == num inputs
+        self.n_inputs = x.shape[1]
         
         torch_y = (
             torch.Tensor(y)
@@ -290,6 +290,7 @@ class SierNetEstimator:
         return self #added for .fit
 
     def score(self, x: np.ndarray, y: np.ndarray) -> float:
+        self.n_inputs = x.shape[1]
         torch_y = (
             torch.Tensor(y)
             if self.num_classes == 0
@@ -298,6 +299,7 @@ class SierNetEstimator:
         return -self.score_criterion(self.net(torch.Tensor(x)), torch_y).item()
 
     def predict(self, x: np.ndarray) -> np.ndarray:
+        self.n_inputs = x.shape[1]
         output = self.net(torch.Tensor(x)).detach().numpy()
         if self.num_classes == 0:
             return output
