@@ -18,25 +18,24 @@ class SierNetEstimator:
     """
     def __init__(
         self,
-        input_filter_layer=False,
-        n_layers= 5,
-        n_hidden= 50,
-        n_out= 1,
-        full_tree_pen= 0.001,
-        input_pen= 0,
-        batch_size= 3, 
-        num_classes= 0,
-        weight= None,
-        max_iters= 40,
-        max_prox_iters= 0,
-        connection_pen= 0,
-        state_dict= None,
+        input_filter_layer:bool,
+        n_layers: int ,
+        n_hidden: int,
+        full_tree_pen: float,
+        input_pen: float,
+        batch_size: int, 
+        num_classes: int,
+        weight: list,
+        max_iters: int,
+        max_prox_iters: int,
+        connection_pen: float = 0,
+        state_dict: dict = None,
     ):
         self.input_filter_layer = input_filter_layer
         self.n_layers = n_layers
         self.n_hidden = n_hidden
-        self.n_out = n_out
-
+        self.n_out = 1 if num_classes == 0 else num_classes
+        
         self.full_tree_pen = full_tree_pen
         self.connection_pen = connection_pen
         self.input_pen = input_pen
@@ -296,7 +295,6 @@ class SierNetEstimator:
         return self #added for .fit
 
     def score(self, x: np.ndarray, y: np.ndarray) -> float:
-        self.n_inputs = x.shape[1]
         torch_y = (
             torch.Tensor(y)
             if self.num_classes == 0
@@ -305,7 +303,6 @@ class SierNetEstimator:
         return -self.score_criterion(self.net(torch.Tensor(x)), torch_y).item()
 
     def predict(self, x: np.ndarray) -> np.ndarray:
-        self.n_inputs = x.shape[1]
         output = self.net(torch.Tensor(x)).detach().numpy()
         if self.num_classes == 0:
             return output
@@ -319,7 +316,6 @@ class SierNetEstimator:
             "input_filter_layer": self.input_filter_layer,
             "n_inputs": self.n_inputs,
             "n_hidden": self.n_hidden,
-            "n_out": self.n_out,
             "full_tree_pen": self.full_tree_pen,
             "input_pen": self.input_pen,
             "connection_pen": self.connection_pen,
@@ -336,12 +332,8 @@ class SierNetEstimator:
             self.n_layers = param_dict["n_layers"]
         if "input_filter_layer" in param_dict:
             self.input_filter_layer = param_dict["input_filter_layer"]
-        # if "n_inputs" in param_dict:
-        #     self.n_inputs = param_dict["n_inputs"]
         if "n_hidden" in param_dict:
             self.n_hidden = param_dict["n_hidden"]
-        if "n_out" in param_dict:
-            self.n_out = param_dict["n_out"]
         if "connection_pen" in param_dict:
             self.connection_pen = param_dict["connection_pen"]
         if "full_tree_pen" in param_dict:

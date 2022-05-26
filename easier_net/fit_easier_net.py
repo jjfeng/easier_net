@@ -7,7 +7,7 @@ import copy
 import sys
 import logging
 import json
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
 import pickle
 import itertools
 
@@ -19,7 +19,6 @@ import itertools
 import torch
 from torch.utils.data import DataLoader
 
-import sier_net
 import easier_net
 import common
 
@@ -51,10 +50,10 @@ def parse_args(args):
         "--n-hidden", type=int, default=10, help="Number of hidden nodes per layer"
     )
     parser.add_argument(
-        "--num-inits",
+        "--n-estimators",
         type=int,
         default=1,
-        help="Determines the number of initializations, which corresponds to the size of the ensemble",
+        help="Size of the ensemble",
     )
     parser.add_argument(
         "--max-iters", type=int, default=40, help="Number of Adam epochs"
@@ -75,10 +74,10 @@ def parse_args(args):
         "--input-pen", type=float, default=0, help="Corresponds to lambda1 in the paper"
     )
     parser.add_argument(
-        "--num-batches",
+        "--batch-size",
         type=int,
-        default=3,
-        help="How many mini-batches to use when using Adam",
+        default=128,
+        help="Size of mini-batches",
     )
     parser.add_argument("--n-jobs", type=int, default=16)
     parser.add_argument(
@@ -142,37 +141,26 @@ def main(args=sys.argv[1:]):
     x = dataset_dict["x"]
     y = dataset_dict["y"]
 
-#TODO: remove this + args in base estimator upon confirmation
-    n_inputs = x.shape[1]
-    n_out = 1 if args.num_classes == 0 else args.num_classes
-    n_obs = x.shape[0]
-
     """
     Fit EASIER-net
     """
     print("Fitting EASIER-net")
-    base_estimator = easier_net.EasierNetEstimator(
-        # n_inputs=n_inputs,
+    easier_estimator = easier_net.EasierNetEstimator(
+        n_estimators=args.n_estimators,
         input_filter_layer=args.input_filter_layer,
         n_layers=args.n_layers,
         n_hidden=args.n_hidden,
-        # n_out=n_out,
         full_tree_pen=args.full_tree_pen,
         input_pen=args.input_pen,
-        num_batches=args.num_batches,
-        # batch_size=(n_obs // args.num_batches + 1),
+        batch_size=args.batch_size,
+        weight=np.ones(args.num_classes),
         num_classes=args.num_classes,
         max_iters=args.max_iters,
         max_prox_iters=args.max_prox_iters,
     )
 
-    all_estimators = base_estimator.fit(
-        x, y
-    )
-    all_estimators.write_model(args.out_model_file)
-
-
-    logging.info("FINAL STRUCT idx 0")
+    easier_estimator.fit(x, y)
+    easier_estimator.write_model(args.out_model_file)
 
     logging.info("complete")
     logging.info("TIME %f", time.time() - st_time)
