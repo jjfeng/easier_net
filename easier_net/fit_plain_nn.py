@@ -15,9 +15,10 @@ import torch
 from torch.utils.data import DataLoader
 
 from sklearn.model_selection import GridSearchCV
-
-from .plain_nnet import PlainNetEstimator
-from .common import process_params
+import plain_nnet
+import common
+# from .plain_nnet import PlainNetEstimator
+# from .common import process_params
 
 
 def parse_args(args):
@@ -52,7 +53,7 @@ def parse_args(args):
     parser.set_defaults(bootstrap=False)
     args = parser.parse_args()
 
-    args.full_tree_pens = process_params(args.full_tree_pens, float)
+    args.full_tree_pens = common.process_params(args.full_tree_pens, float)
 
     assert args.num_classes != 1
     return args
@@ -102,7 +103,7 @@ def main(args=sys.argv[1:]):
     """
     Fit
     """
-    plain_nn_est = PlainNetEstimator(
+    plain_nn_est = plain_nnet.PlainNetEstimator(
         n_inputs=n_inputs,
         n_layers=args.n_layers,
         n_hidden=args.n_hidden,
