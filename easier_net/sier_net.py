@@ -18,7 +18,6 @@ class SierNetEstimator:
     """
     def __init__(
         self,
-        n_inputs=4,
         input_filter_layer=False,
         n_layers= 5,
         n_hidden= 50,
@@ -34,7 +33,6 @@ class SierNetEstimator:
         state_dict= None,
     ):
         self.input_filter_layer = input_filter_layer
-        self.n_inputs = n_inputs
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_out = n_out
@@ -60,20 +58,21 @@ class SierNetEstimator:
         self.score_criterion = (
             nn.CrossEntropyLoss() if self.num_classes >= 2 else nn.MSELoss()
         )
-        # Assemble data
+        
+        if state_dict is not None:
+            self._load_state_dict(state_dict, strict=False)
+            print("loaded state dict")
+
+    def _load_state_dict(self, state_dict):
+        # TODO: fill this out later:
         self.net = SierNet(
+            n_input=state_dict["n_inputs"],
             input_filter_layer=self.input_filter_layer,
             n_layers=self.n_layers,
-            n_input=self.n_inputs, 
             n_hidden=self.n_hidden,
             n_out=self.n_out,
         )
 
-        if state_dict is not None:
-            self.net.load_state_dict(state_dict, strict=False)
-            print("loaded state dict")
-
-    def load_state_dict(self, state_dict):
         self.net.load_state_dict(state_dict, strict=False)
 
     def run_prox_gd_step(
@@ -252,7 +251,14 @@ class SierNetEstimator:
         y: np.ndarray,
     ):
         self.n_inputs = x.shape[1]
-        
+        self.net = SierNet(
+            n_input=self.n_inputs,
+            input_filter_layer=self.input_filter_layer,
+            n_layers=self.n_layers,
+            n_hidden=self.n_hidden,
+            n_out=self.n_out,
+        )
+
         torch_y = (
             torch.Tensor(y)
             if self.num_classes == 0
@@ -330,8 +336,8 @@ class SierNetEstimator:
             self.n_layers = param_dict["n_layers"]
         if "input_filter_layer" in param_dict:
             self.input_filter_layer = param_dict["input_filter_layer"]
-        if "n_inputs" in param_dict:
-            self.n_inputs = param_dict["n_inputs"]
+        # if "n_inputs" in param_dict:
+        #     self.n_inputs = param_dict["n_inputs"]
         if "n_hidden" in param_dict:
             self.n_hidden = param_dict["n_hidden"]
         if "n_out" in param_dict:

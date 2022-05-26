@@ -167,7 +167,7 @@ def main(args=sys.argv[1:]):
     )
 
     all_estimators = base_estimator.fit(
-        x[np.arange(x.shape[0])], y[np.arange(x.shape[0])]
+        x, y
     )
     all_estimators.write_model(args.out_model_file)
 
