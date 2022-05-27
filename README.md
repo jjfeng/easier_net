@@ -31,15 +31,3 @@ where:
 
 To perform cross-validation, one should run separate `fit_easier_net.py` scripts for each candidate penalty parameter values.
 Then select the best penalty parameter values using `collate_best_param.py`.
-
-
-## Reproducing results
-
-Make sure you have [scons](https://scons.org/) downloaded.
-To reproduce results, run `scons <folder_name>`.
-The folders associated with each empirical experiment is given below:
-
-* Simulation study of deconstructed EASIER-nets: `simulation_deconstruct`.
-* Simulation study of variable selection: `simulation_support_prob`.
-* Comparison on UCI datasets: `uci_data_classification` and `uci_data_regression`
-   + Note that you run `load_uci_classification_data.py` and `load_uci_regression_data.py` to first load the data.
