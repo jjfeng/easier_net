@@ -59,15 +59,14 @@ class DataGenerator:
             )
             print("SIGMA", sigma_eps)
             y = true_ys + sigma_eps * eps
+
+            y = (y - self.y_shift) / self.y_scale
+            true_ys = (true_ys - self.y_shift) / self.y_scale
         else:
             # classification
             true_ys = self.func(xs)
             true_ys = np.reshape(true_ys, (true_ys.size, 1))
-            y = np.array(
-                np.random.random_sample((true_ys.size, 1)) < true_ys, dtype=int
-            )
-
-        y = (y - self.y_shift) / self.y_scale
-        true_ys = (true_ys - self.y_shift) / self.y_scale
+            y = np.random.binomial(1, true_ys)
+            sigma_eps = y - true_ys
 
         return xs[:n_obs], y[:n_obs], true_ys[:n_obs], sigma_eps
