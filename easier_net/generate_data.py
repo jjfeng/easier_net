@@ -6,8 +6,6 @@ import pickle
 import numpy as np
 import itertools
 
-import xgboost as xgb
-
 from data_generator import DataGenerator
 from common import process_params
 
