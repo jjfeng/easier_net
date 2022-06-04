@@ -166,6 +166,7 @@ def main(args=sys.argv[1:]):
     else:
         pred_prob = easier_estimator.predict_proba(x)
         pred_class = easier_estimator.predict(x)
+    score = easier_estimator.score(x, y)
 
     logging.info("complete")
     logging.info("TIME %f", time.time() - st_time)

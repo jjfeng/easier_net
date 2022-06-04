@@ -105,16 +105,20 @@ class EasierNetEstimator:
         return self
 
     def score(self, x: np.ndarray, y: np.ndarray) -> float:
-        y_pred = self.predict(x)
         nparr_to_torch = lambda nparr: (
             torch.Tensor(nparr)
             if self.num_classes == 0
             else torch.from_numpy(nparr.astype(int))[:, 0]
         )
-        torch_y_pred = nparr_to_torch(y_pred)
-        torch_y = nparr_to_torch(y)
-
-        return -self.score_criterion(torch_y_pred, torch_y).item()
+        if self.num_classes == 0:
+            y_pred = self.predict(x)
+            return -np.mean(np.power(y_pred - y, 2))
+        elif self.num_classes == 2:
+            pred_log_prob = np.log(self.predict_proba(x))
+            log_lik = pred_log_prob[np.arange(y.size),y.flatten()]
+            return -np.mean(log_lik)
+        else:
+            raise NotImplementedError("didn't implement scoring function for multiclass yet")
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         if self.num_classes == 0: #if this is regression, return avg
