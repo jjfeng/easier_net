@@ -146,6 +146,7 @@ class EasierNetEstimator:
             "max_iters": self.max_iters,
             "max_prox_iters": self.max_prox_iters,
             "batch_size": self.batch_size,
+            "weight": self.weight,
         }
 
     def set_params(self, **param_dict):
@@ -169,5 +170,7 @@ class EasierNetEstimator:
             self.max_prox_iters = param_dict["max_prox_iters"]
         if "batch_size" in param_dict:
             self.batch_size = param_dict["batch_size"]
+        if "weight" in param_dict:
+            self.weight = param_dict["weight"]
 
         return self
