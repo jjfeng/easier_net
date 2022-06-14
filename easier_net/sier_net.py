@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
-from network import SierNet
+from .network import SierNet
 
 class SierNetEstimator: 
     """
