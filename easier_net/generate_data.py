@@ -9,8 +9,6 @@ import itertools
 import xgboost as xgb
 
 from data_generator import DataGenerator
-from common import process_params
-
 
 def parse_args(args):
     """ parse command line arguments """
