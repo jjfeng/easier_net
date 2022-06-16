@@ -31,7 +31,10 @@ nest.add(
 nest.add_aggregate('corr_res', list)
 nest.add(
     'corr',
-    [0, 0.5, 0.8, 0.9, 0.95, 1],
+    [
+         0,
+         #0.5, 0.8, 0.9, 0.95, 1
+    ],
     label_func=lambda c: 'corr_%.2f' % c)
 
 nest.add(
@@ -103,7 +106,7 @@ def fit_init_easier_net(env, outdir, c):
         join(outdir, 'init_easier_net_log.txt')]
     c['models'].append(targets[0])
     cmd = [
-        'srun -p restart --cpus-per-task 2',
+        #'srun -p restart --cpus-per-task 2',
         'python fit_easier_net.py',
         '--data ${SOURCES[0]}',
         '--seed',
@@ -127,19 +130,19 @@ def fit_init_easier_net(env, outdir, c):
         c['generate'],
         ' '.join(map(str, cmd)))
 
-@nest.add_target_with_env(localenv)
-def get_support(env, outdir, c):
-    targets = [
-        join(outdir, 'support.txt')]
-    cmd = [
-        'grep big',
-        '${SOURCES[1]}',
-        '| tail -n 1',
-        '> ${TARGETS[0]}']
-    return env.Command(
-        targets,
-        c['fit_init_easier_net'],
-        ' '.join(map(str, cmd)))
+#@nest.add_target_with_env(localenv)
+#def get_support(env, outdir, c):
+#    targets = [
+#        join(outdir, 'support.txt')]
+#    cmd = [
+#        'grep big',
+#        '${SOURCES[1]}',
+#        '| tail -n 1',
+#        '> ${TARGETS[0]}']
+#    return env.Command(
+#        targets,
+#        c['fit_init_easier_net'],
+#        ' '.join(map(str, cmd)))
 
 nest.pop('init_seed')
 
@@ -175,7 +178,7 @@ def collate_results(env, outdir, c):
         'python collate_results.py',
         '"%s"' % template,
         '${TARGETS[0]}',
-        '--pivot corr,input',
+        '--pivot corr,input,prob_support',
     ]
     return env.Command(
         targets,
