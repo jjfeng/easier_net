@@ -7,8 +7,6 @@ import numpy as np
 import itertools
 
 from data_generator import DataGenerator
-from common import process_params
-
 
 def parse_args(args):
     """ parse command line arguments """

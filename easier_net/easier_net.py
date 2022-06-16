@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 
 import pickle
-import sier_net
+from . import sier_net
 
 
 class EasierNetEstimator:
