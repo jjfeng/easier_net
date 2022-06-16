@@ -1,4 +1,3 @@
-
 #!/usr/bin/env scons
 
 import os
@@ -26,4 +25,7 @@ flag = 'simulation_deconstruct'
 sc.SConscript(flag + '/sconscript', exports=['flag'])
 
 flag = 'simulation_support_prob'
+sc.SConscript(flag + '/sconscript', exports=['flag'])
+
+flag = 'cumida'
 sc.SConscript(flag + '/sconscript', exports=['flag'])
