@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from .network import SierNet
 
-class SierNetEstimator: 
+class SierNetEstimator:
     """
     This first a single sparse-input hierarchical network (SIER-net).
     """
@@ -23,7 +23,7 @@ class SierNetEstimator:
         n_hidden: int,
         full_tree_pen: float,
         input_pen: float,
-        batch_size: int, 
+        batch_size: int,
         num_classes: int,
         weight: list,
         max_iters: int,
@@ -35,7 +35,7 @@ class SierNetEstimator:
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_out = 1 if num_classes == 0 else num_classes
-        
+
         self.full_tree_pen = full_tree_pen
         self.connection_pen = connection_pen
         self.input_pen = input_pen
@@ -53,11 +53,11 @@ class SierNetEstimator:
             if self.num_classes >= 2
             else nn.MSELoss()
         )
-        
+
         self.score_criterion = (
             nn.CrossEntropyLoss() if self.num_classes >= 2 else nn.MSELoss()
         )
-        
+
         if state_dict is not None:
             self._load_state_dict(state_dict, strict=False)
             print("loaded state dict")
@@ -232,16 +232,12 @@ class SierNetEstimator:
                 [p.grad.detach().numpy().flatten() for p in self.net.parameters()]
             ).reshape((-1, 1))
             fisher += np.matmul(gradient, gradient.T)
-            if i % 100 == 0:
-                print("OBS", i)
 
         # input_eye = np.eye(self.n_inputs)
         # log_determinant = np.linalg.slogdet(fisher/num_obs + self.input_pen * input_eye + self.full_tree_pen * full_tree_eye)
-        print("trying", fisher.shape[0])
         log_determinant = np.linalg.slogdet(
             fisher / num_obs + self.input_pen * np.eye(fisher.shape[0])
         )
-        print("DET", log_determinant)
         logging.info(f"LOG DET {log_determinant}")
 
     def fit(
@@ -307,8 +303,13 @@ class SierNetEstimator:
         if self.num_classes == 0:
             return output
         else:
-            raise NotImplementedError()
-            # return np.exp(output)/np.sum(np.exp(output), axis=1, keepdims=True)
+            return np.argmax(self.predict_proba(x), axis = 0).reshape((-1,1))
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        assert self.num_classes > 1
+        outputs = self.net(torch.Tensor(x)).detach().numpy()
+        pred_probs = np.exp(outputs)/np.sum(np.exp(outputs), axis=1, keepdims=True)
+        return pred_probs
 
     def get_params(self, deep=False) -> dict:
         return {
@@ -347,7 +348,7 @@ class SierNetEstimator:
         if "max_iters" in param_dict:
             self.max_iters = param_dict["max_iters"]
         if "max_prox_iters" in param_dict:
-            self.max_prox_iters = param_dict["max_prox_iters"]            
+            self.max_prox_iters = param_dict["max_prox_iters"]
         if "weight" in param_dict:
             self.weight = param_dict["weight"]
 

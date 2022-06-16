@@ -85,7 +85,6 @@ def parse_args(args):
         type=str,
         help="A json file that specifies what the hyperparameters are. If given, this will override the arguments passed in.",
     )
-    # TODO: DELETE?
     parser.add_argument("--log-file", type=str, default="_output/log_nn.txt")
     parser.add_argument("--out-model-file", type=str, default="_output/nn.pt")
     args = parser.parse_args()
@@ -118,7 +117,7 @@ def _fit(
 
     my_estimator = clone(estimator)
     my_estimator.fit(
-        X_train, y_train  
+        X_train, y_train
     )
     return my_estimator
 
@@ -144,7 +143,7 @@ def main(args=sys.argv[1:]):
     """
     Fit EASIER-net
     """
-    print("Fitting EASIER-net")
+    print("Fitting EASIER-net", args.num_classes)
     easier_estimator = easier_net.EasierNetEstimator(
         n_estimators=args.n_estimators,
         input_filter_layer=args.input_filter_layer,
@@ -161,6 +160,13 @@ def main(args=sys.argv[1:]):
 
     easier_estimator.fit(x, y)
     easier_estimator.write_model(args.out_model_file)
+
+    if args.num_classes == 0:
+        easier_estimator.predict(x)
+    else:
+        pred_prob = easier_estimator.predict_proba(x)
+        pred_class = easier_estimator.predict(x)
+    score = easier_estimator.score(x, y)
 
     logging.info("complete")
     logging.info("TIME %f", time.time() - st_time)

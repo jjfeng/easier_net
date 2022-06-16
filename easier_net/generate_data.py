@@ -6,8 +6,6 @@ import pickle
 import numpy as np
 import itertools
 
-import xgboost as xgb
-
 from data_generator import DataGenerator
 
 def parse_args(args):
@@ -38,8 +36,6 @@ def parse_args(args):
     parser.add_argument("--num-corr", type=int, default=0)
     parser.add_argument("--log-file", type=str, default="_output/log_data.txt")
     parser.add_argument("--out-file", type=str, default="_output/data.npz")
-    parser.add_argument("--in-model-file", type=str, default=None)
-    parser.add_argument("--out-model-file", type=str, default=None)
     parser.set_defaults()
     args = parser.parse_args()
     return args
@@ -119,65 +115,29 @@ def main(args=sys.argv[1:]):
     logging.info(args)
     np.random.seed(args.seed)
 
-    if args.in_model_file is None:
-        mean_func, mean_func_dict = create_mean_func(args)
-        print("MEAN FUNC", mean_func)
-        # make train data
-        data_gen = DataGenerator(
-            args.n_inputs,
-            mean_func,
-            x_scale=args.x_scale,
-            snr=args.snr,
-            is_classification=args.is_classification,
-            correlation=args.correlation,
-            num_true=mean_func_dict["num_true"],
-            num_corr=args.num_corr,
-        )
-        x, y, true_y, sigma_eps = data_gen.create_data(args.n_obs)
+    mean_func, mean_func_dict = create_mean_func(args)
+    print("MEAN FUNC", mean_func)
+    # make train data
+    data_gen = DataGenerator(
+        args.n_inputs,
+        mean_func,
+        x_scale=args.x_scale,
+        snr=args.snr,
+        is_classification=args.is_classification,
+        correlation=args.correlation,
+        num_true=mean_func_dict["num_true"],
+        num_corr=args.num_corr,
+    )
+    x, y, true_y, sigma_eps = data_gen.create_data(args.n_obs)
+    if not args.is_classification:
         y_shift = np.mean(y)
         y_scale = np.sqrt(np.var(y))
-        print("y_shif", y_shift, "scale", y_scale)
         y = (y - y_shift) / y_scale
         true_y = (true_y - y_shift) / y_scale
-    else:
-        with open(args.in_model_file, "rb") as f:
-            model_dict = pickle.load(f)
-        mean_func = load_mean_func(args, model_dict)
-        print("MEAN FUNC", mean_func)
-        # make train data
-        data_gen = DataGenerator(
-            model_dict["n_inputs"],
-            mean_func,
-            x_scale=model_dict["x_scale"],
-            y_scale=model_dict["y_scale"],
-            y_shift=model_dict["y_shift"],
-            sigma_eps=model_dict["sigma_eps"],
-            snr=None,
-            is_classification=args.is_classification,
-            correlation=model_dict["correlation"],
-            num_true=model_dict["num_true"],
-            num_corr=model_dict["num_corr"],
-        )
-        x, y, true_y, sigma_eps = data_gen.create_data(args.n_obs)
 
     print("MEAN Y", np.mean(y))
     print("VAR Y", np.var(y))
     np.savez_compressed(args.out_file, x=x, y=y, true_y=true_y)
-    if args.out_model_file is not None:
-        with open(args.out_model_file, "wb") as f:
-            model_dict = {
-                "snr": args.snr,
-                "x_scale": args.x_scale,
-                "y_scale": y_scale,
-                "y_shift": y_shift,
-                "sigma_eps": sigma_eps,
-                "n_inputs": args.n_inputs,
-                "num_corr": args.num_corr,
-                "correlation": args.correlation,
-            }
-            for k, v in mean_func_dict.items():
-                model_dict[k] = v
-            pickle.dump(model_dict, f)
 
 
 if __name__ == "__main__":
