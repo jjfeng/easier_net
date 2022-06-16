@@ -27,9 +27,3 @@ sc.SConscript(flag + '/sconscript', exports=['flag'])
 
 flag = 'simulation_support_prob'
 sc.SConscript(flag + '/sconscript', exports=['flag'])
-
-flag = 'uci_data_regression'
-sc.SConscript(flag + '/sconscript', exports=['flag'])
-
-flag = 'uci_data_classification'
-sc.SConscript(flag + '/sconscript', exports=['flag'])
