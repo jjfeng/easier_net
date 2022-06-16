@@ -1,0 +1,14 @@
+# ignore mac finder system file
+.DS_Store
+dist
+
+tutorial/.ipynb_checkpoints
+
+_output
+.sconsign.dblite
+*.pyc
+.Rproj.user
+venv
+data
+*.swp
+*.sh
