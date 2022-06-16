@@ -98,6 +98,7 @@ class EasierNetEstimator:
         x: np.ndarray,
         y: np.ndarray,
     ):
+        assert len(y.shape) == 2
         self.n_inputs=x.shape[1]
         for est in self.estimators:
             est.fit(x, y)
