@@ -117,7 +117,8 @@ class EasierNetEstimator:
         elif self.num_classes == 2:
             pred_log_prob = np.log(self.predict_proba(x))
             log_lik = pred_log_prob[np.arange(y.size),y.flatten()]
-            return -np.mean(log_lik)
+            log_lik_w = log_lik * (y.flatten() * self.weight[1] + (1 - y.flatten()) * self.weight[0])
+            return np.mean(log_lik_w)
         else:
             raise NotImplementedError("didn't implement scoring function for multiclass yet")
 
