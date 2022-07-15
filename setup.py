@@ -4,8 +4,8 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name="EASIER-net-jeanfeng", # TESTING
-    version="0.0.7",
+    name="EASIER-net", # TESTING
+    version="0.0.8",
     author="Jean Feng",
     author_email="jeanfeng@gmail.com",
     description="EASIER-net",
